@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unit 1 Test - Results Collator</title>
+<style>
+  :root{--teal:#028090;--dteal:#023E4D;--sea:#00A896;--amber:#E8A33D;--ink:#12333B;--mute:#55707A;
+    --light:#EAF6F5;--light2:#F3FAF9;--line:#CFE0E2;--head:Georgia,serif;--body:system-ui,Segoe UI,Arial,sans-serif;}
+  *{box-sizing:border-box} body{margin:0;font-family:var(--body);color:var(--ink);background:var(--light2)}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px}
+  h1,h2{font-family:var(--head);color:var(--dteal);margin:.2em 0}
+  .lead{color:var(--mute)}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px;margin:16px 0;box-shadow:0 2px 10px rgba(2,64,77,.06)}
+  button{font-family:var(--body);cursor:pointer;border:none;border-radius:8px;font-size:15px;padding:11px 18px;font-weight:600}
+  .btn{background:var(--teal);color:#fff}.btn:hover{background:var(--dteal)}
+  .btn-ghost{background:#fff;color:var(--teal);border:2px solid var(--teal)}
+  #drop{border:3px dashed var(--sea);border-radius:14px;padding:40px;text-align:center;color:var(--mute);background:var(--light)}
+  #drop.over{background:#DCF3EE;border-color:var(--teal)}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 10px;text-align:left}
+  th{background:var(--teal);color:#fff;cursor:pointer;white-space:nowrap}
+  th:hover{background:var(--dteal)}
+  tr:nth-child(even) td{background:var(--light2)}
+  .pill{display:inline-block;background:var(--light);border:1px solid var(--line);border-radius:20px;padding:6px 14px;margin:4px 6px 4px 0;font-weight:600;font-size:14px}
+  .small{font-size:13px;color:var(--mute)}
+  .dup{color:#b5771d;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Unit 1 Test &bull; Results collator</h1>
+  <p class="lead">Drop in the results files your students send you. Everything stays on this computer. Nothing is uploaded.</p>
+
+  <div class="card">
+    <div id="drop">
+      <p style="font-size:18px;margin:0 0 8px"><strong>Drag the students’ results files here</strong></p>
+      <p class="small" style="margin:0 0 14px">or</p>
+      <button class="btn" id="pick">Choose files</button>
+      <input id="file" type="file" accept=".json,application/json" multiple hidden>
+      <p class="small" style="margin-top:14px">Files are named like <code>results_11A-Jordan-Smith.json</code></p>
+    </div>
+  </div>
+
+  <div class="card" id="out" style="display:none">
+    <div id="stats"></div>
+    <div style="margin:10px 0">
+      <button class="btn" id="csv">&#11015; Download all as spreadsheet (CSV)</button>
+      <button class="btn-ghost" id="clear">Clear</button>
+    </div>
+    <div style="overflow-x:auto"><table id="tbl"></table></div>
+    <p class="small" id="dupnote"></p>
+  </div>
+</div>
+
+<script>
+var rows = [];       // one per student file
+var topicsSet = {};  // all topic names seen
+var sortKey='name', sortDir=1;
+
+function $(id){return document.getElementById(id);}
+var drop=$('drop');
+['dragenter','dragover'].forEach(function(e){ drop.addEventListener(e,function(ev){ev.preventDefault();drop.classList.add('over');});});
+['dragleave','drop'].forEach(function(e){ drop.addEventListener(e,function(ev){ev.preventDefault();drop.classList.remove('over');});});
+drop.addEventListener('drop', function(ev){ handleFiles(ev.dataTransfer.files); });
+$('pick').addEventListener('click', function(){ $('file').click(); });
+$('file').addEventListener('change', function(){ handleFiles(this.files); });
+$('clear').addEventListener('click', function(){ rows=[];topicsSet={};render();});
+$('csv').addEventListener('click', downloadCSV);
+
+function handleFiles(fileList){
+  var files = Array.prototype.slice.call(fileList).filter(function(f){ return /\.json$/i.test(f.name); });
+  var done=0;
+  if(!files.length) return;
+  files.forEach(function(f){
+    var r=new FileReader();
+    r.onload=function(){
+      try{
+        var d=JSON.parse(r.result);
+        if(d && d.name!=null && d.score!=null){
+          d._file=f.name;
+          Object.keys(d.byTopic||{}).forEach(function(t){ topicsSet[t]=true; });
+          rows.push(d);
+        }
+      }catch(e){ /* skip bad file */ }
+      done++; if(done===files.length) render();
+    };
+    r.readAsText(f);
+  });
+}
+
+function topicList(){ return Object.keys(topicsSet); }
+
+function render(){
+  if(!rows.length){ $('out').style.display='none'; return; }
+  $('out').style.display='block';
+  // de-dupe by name+class, keep highest score; flag duplicates
+  var seen={}, dups=[];
+  rows.forEach(function(r){ var k=(r.name+'|'+r.class).toLowerCase(); if(seen[k]) dups.push(r.name); seen[k]=true; });
+  // sort
+  var sorted = rows.slice().sort(function(a,b){
+    var va,vb;
+    if(sortKey==='name'){va=(a.name||'').toLowerCase();vb=(b.name||'').toLowerCase();}
+    else if(sortKey==='class'){va=(a.class||'').toLowerCase();vb=(b.class||'').toLowerCase();}
+    else if(sortKey==='score'){va=a.score;vb=b.score;}
+    else if(sortKey==='percent'){va=a.percent;vb=b.percent;}
+    else if(sortKey==='time'){va=a.minutesUsed;vb=b.minutesUsed;}
+    else { va=(a.byTopic&&a.byTopic[sortKey]?a.byTopic[sortKey].got:0); vb=(b.byTopic&&b.byTopic[sortKey]?b.byTopic[sortKey].got:0); }
+    if(va<vb)return -1*sortDir; if(va>vb)return 1*sortDir; return 0;
+  });
+  var tl=topicList();
+  // stats
+  var avg = Math.round(rows.reduce(function(s,r){return s+r.score;},0)/rows.length*10)/10;
+  var avgPct = Math.round(rows.reduce(function(s,r){return s+r.percent;},0)/rows.length);
+  var top = Math.max.apply(null, rows.map(function(r){return r.score;}));
+  var low = Math.min.apply(null, rows.map(function(r){return r.score;}));
+  $('stats').innerHTML = '<h2>'+rows.length+' results loaded</h2>'+
+    '<span class="pill">Average: '+avg+' / 50 ('+avgPct+'%)</span>'+
+    '<span class="pill">Highest: '+top+'</span>'+
+    '<span class="pill">Lowest: '+low+'</span>';
+  // table
+  function th(key,label){ return '<th data-k="'+key+'">'+label+(sortKey===key?(sortDir>0?' ▲':' ▼'):'')+'</th>'; }
+  var head='<tr>'+th('name','Name')+th('class','Class')+th('score','Score /50')+th('percent','%')+
+    tl.map(function(t){return th(t, t);}).join('')+th('time','Mins')+'<th>Submitted</th><th>Code</th></tr>';
+  var bodyH = sorted.map(function(r){
+    var tds = tl.map(function(t){ var c=r.byTopic&&r.byTopic[t]; return '<td>'+(c? c.got+'/'+c.max : '-')+'</td>'; }).join('');
+    var sub = r.submitted ? new Date(r.submitted).toLocaleString('en-GB') : '';
+    return '<tr><td>'+esc(r.name)+'</td><td>'+esc(r.class)+'</td><td><strong>'+r.score+'</strong></td><td>'+r.percent+'%</td>'+
+      tds+'<td>'+(r.minutesUsed||'')+'</td><td class="small">'+sub+'</td><td class="small">'+(r.code||'')+'</td></tr>';
+  }).join('');
+  var tbl=$('tbl'); tbl.innerHTML=head+bodyH;
+  Array.prototype.slice.call(tbl.querySelectorAll('th')).forEach(function(h){
+    if(h.getAttribute('data-k')) h.addEventListener('click', function(){ var k=h.getAttribute('data-k'); if(sortKey===k)sortDir*=-1; else {sortKey=k;sortDir=1;} render(); });
+  });
+  $('dupnote').innerHTML = dups.length ? '<span class="dup">Note: more than one file for: '+esc(dups.join(', '))+'. Check which to keep.</span>' : '';
+}
+function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+function downloadCSV(){
+  var tl=topicList();
+  var head=['Name','Class','Score','OutOf','Percent'].concat(tl.map(function(t){return t;})).concat(['MinutesUsed','Submitted','Code']);
+  var lines=[head.join(',')];
+  rows.slice().sort(function(a,b){return (a.class+a.name).localeCompare(b.class+b.name);}).forEach(function(r){
+    var cells=[q(r.name),q(r.class),r.score,r.outOf||50,r.percent];
+    tl.forEach(function(t){ var c=r.byTopic&&r.byTopic[t]; cells.push(c? c.got:''); });
+    cells.push(r.minutesUsed||'', q(r.submitted?new Date(r.submitted).toLocaleString('en-GB'):''), q(r.code||''));
+    lines.push(cells.join(','));
+  });
+  var blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='unit1_test_results.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+function q(s){ s=String(s==null?'':s); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+</script>
+</body>
+</html>
